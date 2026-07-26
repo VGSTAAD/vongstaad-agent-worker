@@ -1,0 +1,9 @@
+name = "vongstaad-agent-worker"
+main = "src/index.ts"
+compatibility_date = "2024-04-05"
+
+[vars]
+AUTH_WORKER_URL = "https://vongstaad-auth-worker.restless-pond-8b7b.workers.dev"
+
+[triggers]
+crons = ["0 * * * *"]
