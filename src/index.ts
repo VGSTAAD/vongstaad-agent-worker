@@ -90,10 +90,14 @@ async function handleGetEmbassies(env: Env): Promise<Response> {
 async function handleCommandPost(request: Request, env: Env): Promise<Response> {
   const body = await request.json() as any;
   const command = body.command || '';
+  const type = body.type || 'command';
+  const method = body.method || 'GET';
+  const path = body.path || '';
+  const bodyData = body.body ? JSON.stringify(body.body) : '';
   const taskId = crypto.randomUUID();
   await env.EMBASSIES_DB.prepare(
-    'INSERT INTO commands (id, command, status, result, created_at) VALUES (?, ?, ?, ?, ?)'
-  ).bind(taskId, command, 'pending', '', Date.now()).run();
+    'INSERT INTO commands (id, command, type, method, path, body, status, result, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).bind(taskId, command, type, method, path, bodyData, 'pending', '', Date.now()).run();
   return corsResponse(JSON.stringify({ success: true, taskId }));
 }
 
@@ -117,8 +121,16 @@ async function handleCommandPatch(request: Request, env: Env, path: string): Pro
 
 async function handleCommandPending(env: Env): Promise<Response> {
   const row = await env.EMBASSIES_DB.prepare(
-    'SELECT id, command, status, result, created_at FROM commands WHERE status = ? ORDER BY created_at ASC LIMIT 1'
+    'SELECT id, command, type, method, path, body, status, result, created_at FROM commands WHERE status = ? ORDER BY created_at ASC LIMIT 1'
   ).bind('pending').first();
   if (!row) return corsResponse(JSON.stringify({ pending: false }));
-  return corsResponse(JSON.stringify({ pending: true, taskId: row.id, command: row.command }));
+  return corsResponse(JSON.stringify({
+    pending: true,
+    taskId: row.id,
+    command: row.command,
+    type: row.type,
+    method: row.method,
+    path: row.path,
+    body: row.body
+  }));
 }
