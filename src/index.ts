@@ -1,6 +1,17 @@
 interface Env {
   EMBASSIES_DB: D1Database;
   AUTH_WORKER_URL: string;
+  GEMINI_API_KEY_1?: string;
+  GEMINI_API_KEY_2?: string;
+  GEMINI_API_KEY_3?: string;
+  GEMINI_API_KEY_4?: string;
+  GEMINI_API_KEY_5?: string;
+  GEMINI_API_KEY_6?: string;
+  GEMINI_API_KEY_7?: string;
+  GEMINI_API_KEY_8?: string;
+  GEMINI_API_KEY_9?: string;
+  GEMINI_API_KEY_10?: string;
+  GEMINI_API_KEY_11?: string;
 }
 
 const CORS_HEADERS = {
@@ -49,7 +60,48 @@ export default {
       return handleCommandPending(env);
     }
 
-    return corsResponse('Not Found', { status: 404 });
+    
+  // Gemini relay endpoint (uses Worker secrets)
+  if (path === '/gemini/complete' && request.method === 'POST') {
+    const body = await request.json() as any;
+    const prompt = body.prompt || '';
+    const keys = [
+      env.GEMINI_API_KEY_1, env.GEMINI_API_KEY_2, env.GEMINI_API_KEY_3,
+      env.GEMINI_API_KEY_4, env.GEMINI_API_KEY_5, env.GEMINI_API_KEY_6,
+      env.GEMINI_API_KEY_7, env.GEMINI_API_KEY_8, env.GEMINI_API_KEY_9,
+      env.GEMINI_API_KEY_10, env.GEMINI_API_KEY_11
+    ].filter(Boolean);
+
+    if (keys.length === 0) return corsResponse(JSON.stringify({ error: 'No Gemini keys configured' }), { status: 500 });
+
+    let lastError = null;
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
+      try {
+        const geminiResp = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${key}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ role: 'user', parts: [{ text: prompt }] }]
+            })
+          }
+        );
+        const data = await geminiResp.json() as any;
+        if (data.error) {
+          lastError = data.error;
+          continue;
+        }
+        return corsResponse(JSON.stringify({ text: data.candidates[0].content.parts[0].text }));
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    return corsResponse(JSON.stringify({ error: `All keys exhausted: ${lastError?.message || 'unknown'}` }), { status: 502 });
+  }
+
+  return corsResponse('Not Found', { status: 404 });
   },
 
   async scheduled(event: ScheduledEvent, env: Env): Promise<void> {
