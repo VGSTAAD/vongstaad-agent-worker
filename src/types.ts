@@ -1,4 +1,6 @@
 export interface Env {
+  EMBASSIES_DB: D1Database;
+  EMBASSY_SECRET: string;
   GEMINI_API_KEY_1: string;
   GEMINI_API_KEY_2: string;
   GEMINI_API_KEY_3: string;

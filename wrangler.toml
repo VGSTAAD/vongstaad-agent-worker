@@ -7,3 +7,8 @@ AUTH_WORKER_URL = "https://vongstaad-auth-worker.restless-pond-8b7b.workers.dev"
 
 [triggers]
 crons = ["0 * * * *"]
+
+[[d1_databases]]
+binding = "EMBASSIES_DB"
+database_name = "vongstaad-embassies"
+database_id = "6b162728-91b5-43ae-baed-07d3cb7e0542"

@@ -1,60 +1,124 @@
-import { GeminiAdapter } from './adapters/gemini';
-import { Env } from './types';
+interface Env {
+  EMBASSIES_DB: D1Database;
+  AUTH_WORKER_URL: string;
+}
 
-function getKeys(env: Env): string[] {
-  return [env.GEMINI_API_KEY_1, env.GEMINI_API_KEY_2, env.GEMINI_API_KEY_3, env.GEMINI_API_KEY_4,
-          env.GEMINI_API_KEY_5, env.GEMINI_API_KEY_6, env.GEMINI_API_KEY_7, env.GEMINI_API_KEY_8,
-          env.GEMINI_API_KEY_9, env.GEMINI_API_KEY_10, env.GEMINI_API_KEY_11];
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, X-Embassy-Secret',
+};
+
+function corsResponse(body: BodyInit | null, init?: ResponseInit): Response {
+  const headers = { ...CORS_HEADERS, ...(init?.headers || {}) };
+  return new Response(body, { ...init, headers });
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    if (url.pathname === '/health') return new Response('OK', { status: 200 });
-    if (url.pathname === '/agent-loop' && request.method === 'POST') return handleAgentLoop(request, env);
-    if (url.pathname === '/auto-review' && request.method === 'POST') return handleAutoReview(request, env);
-    return new Response('Not Found', { status: 404 });
+    const path = url.pathname;
+
+    // Handle CORS preflight
+    if (request.method === 'OPTIONS') {
+      return corsResponse(null, { status: 204 });
+    }
+
+    // Health check
+    if (path === '/health') return new Response('OK');
+
+    // Embassy endpoints
+    if (path === '/register-embassy' && request.method === 'POST') {
+      return handleRegisterEmbassy(request, env);
+    }
+    if (path === '/get-active-embassies') {
+      return handleGetEmbassies(env);
+    }
+
+    // Command queue endpoints
+    if (path === '/command' && request.method === 'POST') {
+      return handleCommandPost(request, env);
+    }
+    if (path.startsWith('/command/') && !path.endsWith('/pending') && request.method === 'GET') {
+      return handleCommandGet(request, env, path);
+    }
+    if (path.startsWith('/command/') && !path.endsWith('/pending') && request.method === 'PATCH') {
+      return handleCommandPatch(request, env, path);
+    }
+    if (path === '/command/pending' && request.method === 'GET') {
+      return handleCommandPending(env);
+    }
+
+    return corsResponse('Not Found', { status: 404 });
   },
 
-  async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-    const gemini = new GeminiAdapter(getKeys(env), 'gemini-3-flash-preview');
-    const messages = [
-      { role: 'system', text: 'You are a Code Reviewer. Review the latest institutional state and report any concerns.' },
-      { role: 'user', text: 'Run a health check on the institution.' }
-    ];
-    const result = await gemini.complete('CodeReviewer', messages);
-    console.log('Autonomous review completed:', result);
+  async scheduled(event: ScheduledEvent, env: Env): Promise<void> {
+    const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+    await env.EMBASSIES_DB.prepare(
+      'DELETE FROM embassies WHERE last_seen < ?'
+    ).bind(fiveMinutesAgo).run();
   }
 };
 
-async function handleAgentLoop(request: Request, env: Env): Promise<Response> {
-  const body = await request.json() as any;
-  const gemini = new GeminiAdapter(getKeys(env), 'gemini-3-flash-preview');
-  const messages: Array<{ role: string; text: string }> = [
-    { role: 'system', text: body.task || 'Review the institution' }
-  ];
-  const agents = body.agents || [{ name: 'DevBot' }, { name: 'ReviewerBot' }];
-  const maxTurns = body.maxTurns || 4;
-  
-  for (let i = 0; i < maxTurns; i++) {
-    const agent = agents[i % agents.length];
-    const reply = await gemini.complete(agent.name, messages);
-    messages.push({ role: agent.name, text: reply });
+async function handleRegisterEmbassy(request: Request, env: Env): Promise<Response> {
+  const secret = request.headers.get('X-Embassy-Secret') || '';
+  if (secret !== 'vongstaad-embassy-secret-2026') {
+    return corsResponse(JSON.stringify({ success: false, error: 'Unauthorized' }), { status: 401 });
   }
-  
-  return new Response(JSON.stringify({ success: true, messages }), {
-    headers: { 'Content-Type': 'application/json' }
-  });
+  const body = await request.json() as any;
+  const label = body.label || 'unknown';
+  const tunnelUrl = body.tunnelUrl || '';
+  const now = Date.now();
+  await env.EMBASSIES_DB.prepare(
+    'INSERT OR REPLACE INTO embassies (label, tunnel_url, last_seen) VALUES (?, ?, ?)'
+  ).bind(label, tunnelUrl, now).run();
+  return corsResponse(JSON.stringify({ success: true }));
 }
 
-async function handleAutoReview(request: Request, env: Env): Promise<Response> {
-  const gemini = new GeminiAdapter(getKeys(env), 'gemini-3-flash-preview');
-  const messages = [
-    { role: 'system', text: 'You are a Code Reviewer. Review the latest institutional state and report any concerns.' },
-    { role: 'user', text: 'Run a health check on the institution.' }
-  ];
-  const result = await gemini.complete('CodeReviewer', messages);
-  return new Response(JSON.stringify({ success: true, result }), {
-    headers: { 'Content-Type': 'application/json' }
-  });
+async function handleGetEmbassies(env: Env): Promise<Response> {
+  const rows = await env.EMBASSIES_DB.prepare(
+    'SELECT label, tunnel_url, last_seen FROM embassies WHERE last_seen > ?'
+  ).bind(Date.now() - 5 * 60 * 1000).all();
+  const result = rows.results.map((r: any) => ({
+    label: r.label,
+    tunnelUrl: r.tunnel_url,
+    lastSeen: new Date(r.last_seen).toISOString()
+  }));
+  return corsResponse(JSON.stringify(result));
+}
+
+async function handleCommandPost(request: Request, env: Env): Promise<Response> {
+  const body = await request.json() as any;
+  const command = body.command || '';
+  const taskId = crypto.randomUUID();
+  await env.EMBASSIES_DB.prepare(
+    'INSERT INTO commands (id, command, status, result, created_at) VALUES (?, ?, ?, ?, ?)'
+  ).bind(taskId, command, 'pending', '', Date.now()).run();
+  return corsResponse(JSON.stringify({ success: true, taskId }));
+}
+
+async function handleCommandGet(request: Request, env: Env, path: string): Promise<Response> {
+  const taskId = path.split('/').pop()!;
+  const row = await env.EMBASSIES_DB.prepare(
+    'SELECT id, command, status, result, created_at FROM commands WHERE id = ?'
+  ).bind(taskId).first();
+  if (!row) return corsResponse(JSON.stringify({ error: 'Not found' }), { status: 404 });
+  return corsResponse(JSON.stringify(row));
+}
+
+async function handleCommandPatch(request: Request, env: Env, path: string): Promise<Response> {
+  const taskId = path.split('/').pop()!;
+  const body = await request.json() as any;
+  await env.EMBASSIES_DB.prepare(
+    'UPDATE commands SET status = ?, result = ? WHERE id = ?'
+  ).bind(body.status || 'completed', body.result || '', taskId).run();
+  return corsResponse(JSON.stringify({ success: true }));
+}
+
+async function handleCommandPending(env: Env): Promise<Response> {
+  const row = await env.EMBASSIES_DB.prepare(
+    'SELECT id, command, status, result, created_at FROM commands WHERE status = ? ORDER BY created_at ASC LIMIT 1'
+  ).bind('pending').first();
+  if (!row) return corsResponse(JSON.stringify({ pending: false }));
+  return corsResponse(JSON.stringify({ pending: true, taskId: row.id, command: row.command }));
 }
