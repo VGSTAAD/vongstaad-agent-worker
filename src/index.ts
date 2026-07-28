@@ -10,9 +10,13 @@ const CORS_HEADERS = {
 };
 
 function cors(body: BodyInit | null, init?: ResponseInit): Response {
+  const headers = { ...CORS_HEADERS, ...(init?.headers || {}) };
+  if (typeof body === 'string') {
+    headers['Content-Type'] = 'application/json';
+  }
   return new Response(body, {
     ...init,
-    headers: { ...CORS_HEADERS, ...(init?.headers || {}) },
+    headers,
   });
 }
 
