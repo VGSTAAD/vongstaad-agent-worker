@@ -1,0 +1,8 @@
+name = "vongstaad-agent-worker"
+main = "src/index.ts"
+compatibility_date = "2026-07-28"
+
+[[d1_databases]]
+binding = "EMBASSIES_DB"
+database_name = "vongstaad-embassies"
+database_id = "46062d28-2eb4-491d-938b-970156c25142"
