@@ -1,2 +1,1 @@
-# vongstaad-agent-worker
-Autonomous institutional operations worker
+# Dead Version 1.0
