@@ -60,7 +60,7 @@ async function handleGetEmbassies(env: Env): Promise<Response> {
 
 async function handleCommandPost(request: Request, env: Env): Promise<Response> {
   const body = await request.json() as any;
-  const command = body.command || body.type || '';
+  const command = JSON.stringify(body);
   const taskId = crypto.randomUUID();
   await env.EMBASSIES_DB.prepare('INSERT INTO commands (id, command, status, result, created_at) VALUES (?, ?, ?, ?, ?)').bind(taskId, JSON.stringify(command), 'pending', '', Date.now()).run();
   return cors(JSON.stringify({ success: true, taskId }));
