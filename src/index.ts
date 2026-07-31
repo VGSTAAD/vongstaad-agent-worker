@@ -5,7 +5,7 @@ interface Env {
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, PATCH, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, X-Embassy-Secret',
+  'Access-Control-Allow-Headers': 'Content-Type, X-Embassy-Secret, Authorization',
 };
 
 function cors(body: BodyInit | null, init?: ResponseInit): Response {
